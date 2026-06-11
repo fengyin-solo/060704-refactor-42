@@ -1,9 +1,6 @@
 import type { DiaryType } from '@/types'
-import { createDefaultTransitions, StateMachine } from '@/engine/StateMachine'
+import { createDefaultTransitions } from '@/engine/DiaryLifecycle'
 import { DiaryState } from '@/types'
-
-const stateMachine = new StateMachine()
-stateMachine.addTransitions(createDefaultTransitions())
 
 const loveLetter: DiaryType = {
   id: 'loveLetter',

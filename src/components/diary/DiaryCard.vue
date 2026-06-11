@@ -3,10 +3,10 @@ import { ref, onMounted, watch, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Diary } from '@/types'
 import { STATE_NAMES, STATE_COLORS, DiaryState } from '@/types'
-import { renderPipeline } from '@/engine/RenderPipeline'
+import { diaryRenderer } from '@/engine/DiaryRenderer'
 import { globalTimeline } from '@/engine/Timeline'
 import { pluginLoader } from '@/engine/PluginLoader'
-import { StateMachine } from '@/engine/StateMachine'
+import { diaryLifecycle } from '@/engine/DiaryLifecycle'
 import { useDiaryStore } from '@/stores/diary'
 
 interface Props {
@@ -21,10 +21,9 @@ const diaryStore = useDiaryStore()
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const isHovered = ref(false)
 const showDeleteConfirm = ref(false)
-const stateMachine = new StateMachine()
 
 const scheduleStatus = computed(() => {
-  return diaryStore.getDiaryScheduleStatus(props.diary)
+  return diaryLifecycle.getScheduleStatus(props.diary)
 })
 
 const hasSchedule = computed(() => {
@@ -56,41 +55,14 @@ function render() {
   
   const ctx = canvasRef.value.getContext('2d')
   if (!ctx) return
-  
-  if (props.diary.state === DiaryState.SCHEDULED) {
-    ctx.fillStyle = '#1a1a2e'
-    ctx.fillRect(0, 0, canvasRef.value.width, canvasRef.value.height)
-    
-    ctx.fillStyle = '#60a5fa'
-    ctx.font = '48px sans-serif'
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.fillText('⏰', canvasRef.value.width / 2, canvasRef.value.height / 2 - 20)
-    
-    ctx.fillStyle = '#94a3b8'
-    ctx.font = '14px monospace'
-    ctx.fillText('待发布', canvasRef.value.width / 2, canvasRef.value.height / 2 + 30)
-    
-    if (scheduleStatus.value.timeToPublish > 0) {
-      ctx.fillStyle = '#60a5fa'
-      ctx.font = '12px monospace'
-      ctx.fillText(`+${Math.floor(scheduleStatus.value.timeToPublish)}`, canvasRef.value.width / 2, canvasRef.value.height / 2 + 50)
-    }
-    return
-  }
-  
-  const decayRate = diaryType.value?.decayRate || 1
-  renderPipeline.render(props.diary, ctx, undefined, decayRate)
+
+  diaryRenderer.renderDiary(props.diary, ctx, { compact: true })
 }
 
 let unsubscribe: (() => void) | null = null
 let renderInterval: number | null = null
 
 onMounted(() => {
-  if (diaryType.value) {
-    stateMachine.addTransitions(diaryType.value.transitions)
-  }
-  
   render()
   
   unsubscribe = globalTimeline.subscribe(() => {

@@ -126,32 +126,6 @@ function saveSchedule() {
 
 function render() {
   if (!canvasRef.value || !currentDiary.value) return
-  
-  if (isScheduled.value) {
-    const ctx = canvasRef.value.getContext('2d')
-    if (ctx) {
-      ctx.fillStyle = '#1a1a2e'
-      ctx.fillRect(0, 0, canvasRef.value.width, canvasRef.value.height)
-      
-      ctx.fillStyle = '#60a5fa'
-      ctx.font = '80px sans-serif'
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
-      ctx.fillText('⏰', canvasRef.value.width / 2, canvasRef.value.height / 2 - 40)
-      
-      ctx.fillStyle = '#94a3b8'
-      ctx.font = '20px monospace'
-      ctx.fillText('日记尚未发布', canvasRef.value.width / 2, canvasRef.value.height / 2 + 20)
-      
-      if (scheduleStatus.value && scheduleStatus.value.timeToPublish > 0) {
-        ctx.fillStyle = '#60a5fa'
-        ctx.font = '16px monospace'
-        ctx.fillText(`距离发布还有 ${Math.floor(scheduleStatus.value.timeToPublish)} 时间单位`, canvasRef.value.width / 2, canvasRef.value.height / 2 + 60)
-      }
-    }
-    return
-  }
-  
   renderToCanvas(canvasRef.value, previewTime.value ?? undefined)
 }
 

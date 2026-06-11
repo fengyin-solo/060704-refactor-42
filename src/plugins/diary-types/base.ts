@@ -1,5 +1,5 @@
 import type { DiaryType } from '@/types'
-import { createDefaultTransitions } from '@/engine/StateMachine'
+import { createDefaultTransitions } from '@/engine/DiaryLifecycle'
 
 const base: DiaryType = {
   id: 'base',

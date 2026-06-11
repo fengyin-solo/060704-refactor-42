@@ -2,9 +2,11 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useDiaryStore } from '@/stores/diary'
 import { useUserStore } from '@/stores/user'
 import { useInventoryStore } from '@/stores/inventory'
+import { diaryRenderer } from '@/engine/DiaryRenderer'
 import { renderPipeline } from '@/engine/RenderPipeline'
 import { globalTimeline } from '@/engine/Timeline'
 import { pluginLoader } from '@/engine/PluginLoader'
+import { diaryLifecycle } from '@/engine/DiaryLifecycle'
 import type { Diary, PipelineStep, DiarySchedule } from '@/types'
 import { STATE_NAMES, STATE_COLORS, DiaryState } from '@/types'
 
@@ -18,7 +20,7 @@ export function useDiary(diaryId?: string) {
   
   const decayLevel = computed(() => {
     if (!currentDiary.value) return 0
-    return diaryStore.getDecayLevel(currentDiary.value)
+    return diaryLifecycle.getDecayLevel(currentDiary.value)
   })
   
   const stateName = computed(() => {
@@ -42,7 +44,7 @@ export function useDiary(diaryId?: string) {
   })
   
   const isDead = computed(() => {
-    return currentDiary.value?.state === 'dead'
+    return currentDiary.value?.state === DiaryState.DEAD
   })
   
   const isFrozen = computed(() => {
@@ -55,7 +57,7 @@ export function useDiary(diaryId?: string) {
   
   const scheduleStatus = computed(() => {
     if (!currentDiary.value) return null
-    return diaryStore.getDiaryScheduleStatus(currentDiary.value)
+    return diaryLifecycle.getScheduleStatus(currentDiary.value)
   })
 
   function loadDiary(id: string) {
@@ -77,18 +79,7 @@ export function useDiary(diaryId?: string) {
     renderError.value = null
     
     try {
-      const decayRate = diaryType.value?.decayRate || 1
-      
-      if (currentDiary.value.state === 'dead' && currentDiary.value.tombstone) {
-        const tombstone = pluginLoader.getTombstone(currentDiary.value.tombstone)
-        if (tombstone) {
-          ctx.fillStyle = '#000'
-          ctx.fillRect(0, 0, canvas.width, canvas.height)
-          tombstone.render(ctx, currentDiary.value)
-        }
-      } else {
-        renderPipeline.render(currentDiary.value, ctx, targetTime, decayRate)
-      }
+      diaryRenderer.renderDiary(currentDiary.value, ctx, { targetTime })
     } catch (e) {
       renderError.value = e instanceof Error ? e.message : '渲染失败'
     } finally {
@@ -144,6 +135,12 @@ export function useDiary(diaryId?: string) {
     updatePipeline(newPipeline)
   }
 
+  function updateSchedule(schedule: Partial<DiarySchedule>) {
+    if (!currentDiary.value || !isOwner.value) return
+    diaryStore.updateDiarySchedule(currentDiary.value.id, schedule)
+    loadDiary(currentDiary.value.id)
+  }
+
   function useItem(itemId: string) {
     if (!currentDiary.value || !isOwner.value) return false
     
@@ -158,12 +155,6 @@ export function useDiary(diaryId?: string) {
   function checkTransition() {
     if (!currentDiary.value) return
     diaryStore.checkAndTransition(currentDiary.value.id)
-    loadDiary(currentDiary.value.id)
-  }
-
-  function updateSchedule(schedule: Partial<DiarySchedule>) {
-    if (!currentDiary.value || !isOwner.value) return
-    diaryStore.updateDiarySchedule(currentDiary.value.id, schedule)
     loadDiary(currentDiary.value.id)
   }
 
@@ -216,8 +207,8 @@ export function useDiary(diaryId?: string) {
     toggleMethod,
     addMethodToPipeline,
     removeMethodFromPipeline,
+    updateSchedule,
     useItem,
-    checkTransition,
-    updateSchedule
+    checkTransition
   }
 }

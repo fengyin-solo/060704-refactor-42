@@ -1,17 +1,15 @@
 import type { Diary, DiaryContent, DecayMethod, PipelineStep } from '@/types'
-import { globalTimeline } from './Timeline'
-import { StateMachine } from './StateMachine'
+import { DiaryState } from '@/types'
+import { diaryLifecycle } from './DiaryLifecycle'
 
 export class RenderPipeline {
   private methods: Map<string, DecayMethod> = new Map()
   private offscreenCanvas: HTMLCanvasElement
   private offscreenCtx: CanvasRenderingContext2D
-  private stateMachine: StateMachine
 
   constructor() {
     this.offscreenCanvas = document.createElement('canvas')
     this.offscreenCtx = this.offscreenCanvas.getContext('2d')!
-    this.stateMachine = new StateMachine()
   }
 
   registerMethod(method: DecayMethod): void {
@@ -84,14 +82,11 @@ export class RenderPipeline {
     this.offscreenCanvas.height = height
     
     const offCtx = this.offscreenCtx
-    const currentTime = targetTime ?? globalTimeline.getTime()
-    const elapsed = Math.max(0, currentTime - diary.createdAt)
-    
-    const decayLevel = this.stateMachine.getDecayLevel(diary, elapsed, decayRate)
+    const decayLevel = diaryLifecycle.getDecayLevel(diary, targetTime)
     
     this.drawBaseContent(offCtx, diary.content, width, height)
     
-    if (diary.state === 'dead' && diary.tombstone) {
+    if (diary.state === DiaryState.DEAD && diary.tombstone) {
       ctx.fillStyle = '#000'
       ctx.fillRect(0, 0, width, height)
       return

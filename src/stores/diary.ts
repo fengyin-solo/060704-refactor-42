@@ -13,7 +13,7 @@ import { storage } from '@/utils/storage'
 import { generateId } from '@/utils/id'
 import { pluginLoader } from '@/engine/PluginLoader'
 import { globalTimeline } from '@/engine/Timeline'
-import { StateMachine } from '@/engine/StateMachine'
+import { diaryLifecycle } from '@/engine/DiaryLifecycle'
 import { useUserStore } from './user'
 
 let _userStore: any = null
@@ -28,7 +28,6 @@ const getUserStore = () => {
 export const useDiaryStore = defineStore('diary', () => {
   const diaries = ref<Diary[]>([])
   const archivedDiaries = ref<ArchivedDiary[]>([])
-  const stateMachines = ref<Map<string, StateMachine>>(new Map())
 
   const currentUserDiaries = computed(() => {
     const userStore = getUserStore()
@@ -263,10 +262,6 @@ export const useDiaryStore = defineStore('diary', () => {
           }
         }).filter(Boolean) as PipelineStep[]
         
-        const sm = new StateMachine()
-        sm.addTransitions(diaryType.transitions)
-        stateMachines.value.set(content.type, sm)
-        
         const now = globalTimeline.getTime()
         const diary: Diary = {
           id: generateId(),
@@ -377,57 +372,16 @@ export const useDiaryStore = defineStore('diary', () => {
   function checkAndTransition(diaryId: string): void {
     const diary = getDiaryById(diaryId)
     if (!diary || diary.frozen || diary.state === DS.DEAD) return
+
+    const result = diaryLifecycle.tick(diary)
     
-    const now = globalTimeline.getTime()
-    
-    if (diary.state === DS.SCHEDULED) {
-      if (diary.schedule.publishAt && diary.schedule.publishAt <= now) {
-        const updatedDiary = {
-          ...diary,
-          state: DS.FRESH,
-          stateTimestamps: {
-            ...diary.stateTimestamps,
-            [DS.FRESH]: now
-          }
-        }
-        updateDiary(diaryId, updatedDiary)
-        return
+    if (result.shouldArchive && result.archiveReason) {
+      if (result.stateChanged) {
+        updateDiary(diaryId, result.diary)
       }
-      return
-    }
-    
-    if (diary.schedule.autoArchiveAt && diary.schedule.autoArchiveAt <= now) {
-      archiveDiary(diaryId, AR.SCHEDULED_ARCHIVE)
-      return
-    }
-    
-    const diaryType = pluginLoader.getDiaryType(diary.type)
-    if (!diaryType) return
-    
-    let sm = stateMachines.value.get(diary.type)
-    if (!sm) {
-      sm = new StateMachine()
-      sm.addTransitions(diaryType.transitions)
-      stateMachines.value.set(diary.type, sm)
-    }
-    
-    const effectiveDecayStart = diary.decayStartTime ?? diary.createdAt
-    const elapsed = globalTimeline.getElapsedSince(effectiveDecayStart)
-    const adjustedElapsed = elapsed * diaryType.decayRate
-    
-    if (sm.canTransition(diary, adjustedElapsed)) {
-      const currentTime = globalTimeline.getTime()
-      const newDiary = sm.transition(diary, adjustedElapsed, currentTime)
-      
-      if (newDiary.state === DS.DEAD) {
-        if (diaryType.deathEffect) {
-          diaryType.deathEffect(newDiary)
-        }
-        updateDiary(diaryId, newDiary)
-        setTimeout(() => archiveDiary(diaryId, AR.DEAD), 100)
-      } else {
-        updateDiary(diaryId, newDiary)
-      }
+      setTimeout(() => archiveDiary(diaryId, result.archiveReason!), 100)
+    } else if (result.stateChanged) {
+      updateDiary(diaryId, result.diary)
     }
   }
 
@@ -435,37 +389,12 @@ export const useDiaryStore = defineStore('diary', () => {
     const diary = getDiaryById(diaryId)
     if (!diary) return
     
-    const diaryType = pluginLoader.getDiaryType(diary.type)
-    if (!diaryType) return
-    
-    let sm = stateMachines.value.get(diary.type)
-    if (!sm) {
-      sm = new StateMachine()
-      sm.addTransitions(diaryType.transitions)
-      stateMachines.value.set(diary.type, sm)
-    }
-    
-    const currentTime = globalTimeline.getTime()
-    const newDiary = sm.rewindState(diary, currentTime)
+    const newDiary = diaryLifecycle.rewindState(diary)
     updateDiary(diaryId, newDiary)
   }
 
   function getDecayLevel(diary: Diary): number {
-    const diaryType = pluginLoader.getDiaryType(diary.type)
-    if (!diaryType) return 0
-    
-    if (diary.state === DS.SCHEDULED) return 0
-    
-    let sm = stateMachines.value.get(diary.type)
-    if (!sm) {
-      sm = new StateMachine()
-      sm.addTransitions(diaryType.transitions)
-      stateMachines.value.set(diary.type, sm)
-    }
-    
-    const effectiveDecayStart = diary.decayStartTime ?? diary.createdAt
-    const elapsed = globalTimeline.getElapsedSince(effectiveDecayStart)
-    return sm.getDecayLevel(diary, elapsed, diaryType.decayRate)
+    return diaryLifecycle.getDecayLevel(diary)
   }
 
   function getDiariesByUser(userId: string): Diary[] {
@@ -672,30 +601,12 @@ export const useDiaryStore = defineStore('diary', () => {
     const diary = getDiaryById(diaryId)
     if (!diary) return
 
-    const now = globalTimeline.getTime()
-    const newSchedule = {
-      ...diary.schedule,
-      ...schedule
-    }
-
-    let newState = diary.state
-    const newStateTimestamps = { ...diary.stateTimestamps }
-
-    if (newSchedule.publishAt && newSchedule.publishAt > now) {
-      if (diary.state !== DS.SCHEDULED) {
-        newState = DS.SCHEDULED
-        newStateTimestamps[DS.SCHEDULED] = now
-      }
-    } else if (diary.state === DS.SCHEDULED) {
-      newState = DS.FRESH
-      newStateTimestamps[DS.FRESH] = now
-    }
-
+    const newDiary = diaryLifecycle.applySchedule(diary, schedule)
     updateDiary(diaryId, {
-      schedule: newSchedule,
-      decayStartTime: newSchedule.decayStartAt ?? null,
-      state: newState,
-      stateTimestamps: newStateTimestamps
+      schedule: newDiary.schedule,
+      decayStartTime: newDiary.decayStartTime,
+      state: newDiary.state,
+      stateTimestamps: newDiary.stateTimestamps
     })
   }
 
@@ -710,26 +621,8 @@ export const useDiaryStore = defineStore('diary', () => {
     return true
   }
 
-  function getDiaryScheduleStatus(diary: Diary): {
-    isScheduled: boolean
-    isPublished: boolean
-    isDecaying: boolean
-    willArchive: boolean
-    timeToPublish: number
-    timeToDecay: number
-    timeToArchive: number
-  } {
-    const now = globalTimeline.getTime()
-    
-    return {
-      isScheduled: diary.state === DS.SCHEDULED,
-      isPublished: diary.schedule.publishAt ? diary.schedule.publishAt <= now : true,
-      isDecaying: diary.decayStartTime ? diary.decayStartTime <= now : true,
-      willArchive: diary.schedule.autoArchiveAt !== null,
-      timeToPublish: diary.schedule.publishAt ? Math.max(0, diary.schedule.publishAt - now) : 0,
-      timeToDecay: diary.decayStartTime ? Math.max(0, diary.decayStartTime - now) : 0,
-      timeToArchive: diary.schedule.autoArchiveAt ? Math.max(0, diary.schedule.autoArchiveAt - now) : 0
-    }
+  function getDiaryScheduleStatus(diary: Diary) {
+    return diaryLifecycle.getScheduleStatus(diary)
   }
 
   return {

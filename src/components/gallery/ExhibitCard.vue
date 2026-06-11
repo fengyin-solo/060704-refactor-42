@@ -3,10 +3,9 @@ import { ref, onMounted, watch, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Exhibit } from '@/types'
 import { STATE_NAMES, STATE_COLORS } from '@/types'
-import { renderPipeline } from '@/engine/RenderPipeline'
+import { diaryRenderer } from '@/engine/DiaryRenderer'
 import { globalTimeline } from '@/engine/Timeline'
 import { pluginLoader } from '@/engine/PluginLoader'
-import { StateMachine } from '@/engine/StateMachine'
 
 interface Props {
   exhibit: Exhibit
@@ -17,7 +16,6 @@ const router = useRouter()
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const isHovered = ref(false)
-const stateMachine = new StateMachine()
 
 const stateColor = computed(() => STATE_COLORS[props.exhibit.diary.state])
 const stateName = computed(() => STATE_NAMES[props.exhibit.diary.state])
@@ -41,19 +39,14 @@ function render() {
   
   const ctx = canvasRef.value.getContext('2d')
   if (!ctx) return
-  
-  const decayRate = diaryType.value?.decayRate || 1
-  renderPipeline.render(props.exhibit.diary, ctx, undefined, decayRate)
+
+  diaryRenderer.renderDiary(props.exhibit.diary, ctx, { compact: true })
 }
 
 let unsubscribe: (() => void) | null = null
 let renderInterval: number | null = null
 
 onMounted(() => {
-  if (diaryType.value) {
-    stateMachine.addTransitions(diaryType.value.transitions)
-  }
-  
   render()
   
   unsubscribe = globalTimeline.subscribe(() => {
